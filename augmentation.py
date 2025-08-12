@@ -1,8 +1,7 @@
 from transformers import AutoTokenizer, AutoModel
 import torch
-import faiss
 import torch.nn as nn
-import numpy as np
+import faiss
 import spacy
 import itertools
 from vncorenlp import VnCoreNLP
@@ -11,7 +10,7 @@ MODEL_NAME = "bert-base-multilingual-cased"
 NLP = spacy.load("en_core_web_sm")
 
 class Dictionary_base_Augmentation(nn.Module):
-    def __init__(self, model_name: str, batch_size: int, threshold: float, align_layer: int):
+    def __init__(self, model_name: str, batch_size: int, threshold: float, align_layer: int, topN: int):
         super().__init__()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -20,6 +19,7 @@ class Dictionary_base_Augmentation(nn.Module):
         self.batch_size = batch_size
         self.threshold = threshold
         self.align_layer = align_layer
+        self.topN = topN
     
     def get_batch_embeddings(self, sentences: list[str]) -> torch.Tensor:
         embeddings = []
@@ -32,12 +32,12 @@ class Dictionary_base_Augmentation(nn.Module):
             embeddings.append(batch_embeddings)
         return torch.cat(embeddings, dim=0)
     
-    def get_topN_src_sentences(self, src_ood_parallel_corpus_embeddings, src_ind_dic_embeddings, N: int) -> list[list[int]]:
+    def get_topN_src_sentences(self, src_ood_parallel_corpus_embeddings, src_ind_dic_embeddings) -> list[list[int]]:
         index = faiss.IndexFlatIP(src_ood_parallel_corpus_embeddings.shape[-1])
         index.add(src_ood_parallel_corpus_embeddings)
         faiss.normalize_L2(src_ood_parallel_corpus_embeddings) # Normalize L2
         faiss.normalize_L2(src_ind_dic_embeddings) # Normalize L2
-        _, indices = index.search(src_ind_dic_embeddings, k=N)
+        _, indices = index.search(src_ind_dic_embeddings, k=self.topN)
         return indices.tolist()
             
     def extract_en_noun_phrases(self, sentence: str) -> list[str]:
@@ -107,7 +107,7 @@ class Dictionary_base_Augmentation(nn.Module):
     def substitute(self, ood_sentence: str, phrase_max_ood: str, phrase_ind: str) -> str:
         return ood_sentence.replace(phrase_max_ood, phrase_ind)
         
-    def forward(self, ood_parallel_corpus, ind_dic, N):
+    def forward(self, ood_parallel_corpus, ind_dic):
         src_odd_parallel_corpus, tgt_odd_parallel_corpus = [], []
         for S, T in ood_parallel_corpus:
             src_odd_parallel_corpus.append(S)
@@ -119,7 +119,7 @@ class Dictionary_base_Augmentation(nn.Module):
             
         src_ood_parallel_corpus_embeddings = self.get_batch_embeddings(src_odd_parallel_corpus)
         src_ind_dic_embeddings = self.get_batch_embeddings(src_ind_dic)
-        src_ood_topN_sen_corpus_indices = self.get_topN_src_sentences(src_ood_parallel_corpus_embeddings, src_ind_dic_embeddings, N)
+        src_ood_topN_sen_corpus_indices = self.get_topN_src_sentences(src_ood_parallel_corpus_embeddings, src_ind_dic_embeddings)
         assert len(src_ood_topN_sen_corpus_indices) == src_ind_dic_embeddings.shape[0], "Not Suitable Size"
         Gc = []
         for i in range(src_ind_dic_embeddings.shape[0]):
