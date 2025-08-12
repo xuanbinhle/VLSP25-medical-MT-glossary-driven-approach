@@ -1,0 +1,4 @@
+spacy
+faiss-cpu
+vncorenlp
+transformers
