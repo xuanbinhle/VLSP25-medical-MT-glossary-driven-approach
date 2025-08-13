@@ -3,3 +3,4 @@ faiss-gpu-cu12
 vncorenlp
 transformers
 icecream
+tqdm
