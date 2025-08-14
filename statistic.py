@@ -1,4 +1,15 @@
 import json
+import re
+
+VN_CHARS = 'áàảãạăắằẳẵặâấầẩẫậéèẻẽẹêếềểễệóòỏõọôốồổỗộơớờởỡợíìỉĩịúùủũụưứừửữựýỳỷỹỵđÁÀẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬÉÈẺẼẸÊẾỀỂỄỆÓÒỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÍÌỈĨỊÚÙỦŨỤƯỨỪỬỮỰÝỲỶỸỴĐ'
+EN_CHARS = r"a-zA-Z"
+VI_CHARS = rf"a-zA-Z{VN_CHARS}"
+
+def check_character_en(en_sen: str) -> bool:
+    return bool(re.search(EN_CHARS, en_sen))
+
+def check_character_vi(vi_sen: str) -> bool:
+    return bool(re.search(VI_CHARS, vi_sen))
 
 if __name__ == '__main__':
     jsonDic = json.load(open("./data/Final/Medical_Dictionary.json", 'r', encoding='utf-8'))
@@ -12,10 +23,12 @@ if __name__ == '__main__':
         parts = line.split("\t")
         if len(parts) != 2:
             raise ValueError("Bug Formmat in MedEV Dataset")
-        sizeMedEV += 1
         vi, en = parts
         vi = vi.strip().lower()
         en = en.strip().lower()
+        if check_character_vi(vi) or check_character_en(en):
+            continue
+        sizeMedEV += 1
         if (en, vi) in pairs_MedEV:
             continue
         indices_MedEV.append(idx)
@@ -26,8 +39,8 @@ if __name__ == '__main__':
     pairs_CorpusTraining = set()
     sizeTraining = 0
     for en_line, vi_line in zip(f_en, f_vi):
-        if not isinstance(en_line.strip(), str) or not isinstance(vi_line.strip(), str):
-            raise ValueError("Bug Formmat in Corpus Dataset Training")
+        if not isinstance(en_line.strip(), str) or not isinstance(vi_line.strip(), str) or check_character_en(en_line.strip()) or check_character_vi(vi_line.strip()):
+            continue
         vi = vi_line.strip().lower()
         en = en_line.strip().lower()
         sizeTraining += 1
@@ -40,8 +53,8 @@ if __name__ == '__main__':
     sizeTesting = 0
     pairs_CorpusTesting = set()
     for en_line, vi_line in zip(f_en, f_vi):
-        if not isinstance(en_line.strip(), str) or not isinstance(vi_line.strip(), str):
-            raise ValueError("Bug Formmat in Corpus Dataset Testing")
+        if not isinstance(en_line.strip(), str) or not isinstance(vi_line.strip(), str) or check_character_en(en_line.strip()) or check_character_vi(vi_line.strip()):
+            continue
         sizeTesting += 1
         vi = vi_line.strip().lower()
         en = en_line.strip().lower()
@@ -72,5 +85,5 @@ if __name__ == '__main__':
     f_testing_en = open("./data/Final/test.en.txt", 'w', encoding='utf-8')
     f_testing_vi = open("./data/Final/test.vi.txt", 'w', encoding='utf-8')
     for (en, vi) in pairs_CorpusTesting:
-        f_training_en.write(f"{en}\n")
-        f_training_vi.write(f"{vi}\n")
+        f_testing_en.write(f"{en}\n")
+        f_testing_vi.write(f"{vi}\n")
