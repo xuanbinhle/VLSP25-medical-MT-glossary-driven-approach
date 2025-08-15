@@ -10,7 +10,6 @@ import itertools
 from vncorenlp import VnCoreNLP
 from tqdm import tqdm
 
-res = faiss.StandardGpuResources()
 MODEL_NAME = "bert-base-multilingual-cased"
 OUTPUT_FILE = "augmentation"
 NLP = spacy.load("en_core_web_sm")
@@ -42,33 +41,42 @@ class Dictionary_base_Augmentation(nn.Module):
 
     def get_topN_src_sentences(self, src_ood_parallel_corpus_embeddings, src_ind_dic_embeddings) -> list[list[int]]:
         index = faiss.IndexFlatIP(src_ood_parallel_corpus_embeddings.shape[-1])
-        gpu_index_flat = faiss.index_cpu_to_gpu(res, 0, index)
         index.add(src_ood_parallel_corpus_embeddings)
         faiss.normalize_L2(src_ood_parallel_corpus_embeddings) # Normalize L2
         faiss.normalize_L2(src_ind_dic_embeddings) # Normalize L2
-        _, indices = gpu_index_flat.search(src_ind_dic_embeddings, k=self.topN)
+        _, indices = index.search(src_ind_dic_embeddings, k=self.topN)
         return indices.tolist()
 
     def extract_en_noun_phrases(self, sentence: str) -> list[str]:
         doc_sen = NLP(sentence)
-        phrases = [chunk.text for chunk in doc_sen.noun_chunks]
+        phrases = []
+        for chunk in doc_sen.noun_phrases:
+            if not any(token.pos_ == 'NUM' for token in chunk):
+                phrases.append(chunk.text.strip())
         return phrases
 
     def extract_vi_noun_phraes(self, sentence: str) -> list[str]:
-        pos_tagging = self.rdrsegmenter.pos_tag(sentence)[0]
-        noun_tags = ['N', 'Np', 'Nc', 'Nu', 'Ny', 'Nb']
-        prev_N = False
-        noun_phrases = []
-        for word, tag in pos_tagging:
+        pos_tagged = self.rdrsegmenter.pos_tag(sentence)[0]
+        noun_tags = ['N', 'Np', 'Nc', 'Nu', 'Ny', 'Nb', 'A']
+
+        phrases = []
+        curr_phrases = []
+        for token, tag in pos_tagged:
             if tag in noun_tags:
-                if prev_N:
-                    noun_phrases[-1] += " " + word
-                else:
-                    noun_phrases.append(word)
-                prev_N = True
+                curr_phrases.append(token)
             else:
-                prev_N = False
-        return [phrase.replace("_", " ") for phrase in noun_phrases]
+                if curr_phrases:
+                    phrase = " ".join(curr_phrases).strip()
+                    phrase = phrase.strip(",.?!;:()[]")
+                    if phrase:
+                        phrases.append(phrase)
+                    curr_phrases = []
+        if curr_phrases:
+            phrase = " ".join(curr_phrases).strip()
+            phrase = phrase.strip(",.?!;:()[]")
+            if phrase:
+                phrases.append(phrase)
+        return phrases
 
     def align(self, src_phrases: list[str], tgt_phrases: list[str]):
         token_src, token_tgt = [self.tokenizer.tokenize(word) for word in src_phrases], [self.tokenizer.tokenize(word) for word in tgt_phrases]
@@ -133,6 +141,7 @@ class Dictionary_base_Augmentation(nn.Module):
         assert len(src_ood_topN_sen_corpus_indices) == src_ind_dic_embeddings.shape[0], "Not Suitable Size"
         for i in tqdm(range(src_ind_dic_embeddings.shape[0]), desc='Similarity to src_dic'):
             src_embedding = src_ind_dic_embeddings[i].reshape(1, -1)
+            faiss.normalize_L2(src_embedding)
             for id_sen in src_ood_topN_sen_corpus_indices[i]:
                 phrases_Sk = self.extract_en_noun_phrases(src_odd_parallel_corpus[id_sen])
                 phrases_Tk = self.extract_vi_noun_phraes(tgt_odd_parallel_corpus[id_sen])
@@ -140,11 +149,9 @@ class Dictionary_base_Augmentation(nn.Module):
 
                 phrases_embeddings = self.get_batch_embeddings(phrases_Sk)
                 index_phrase = faiss.IndexFlatIP(phrases_embeddings.shape[-1])
-                gpu_index_phrase = faiss.index_cpu_to_gpu(res, 0, index_phrase)
                 faiss.normalize_L2(phrases_embeddings)
-                gpu_index_phrase.add(phrases_embeddings)
-                faiss.normalize_L2(src_embedding)
-                _, max_sim_index = gpu_index_phrase.search(src_embedding, k=1)
+                index_phrase.add(phrases_embeddings)
+                _, max_sim_index = index_phrase.search(src_embedding, k=1)
                 phrase_max_Sk = phrases_Sk[max_sim_index[0].item()]
                 phrase_max_Tk = mapping_align_words[phrase_max_Sk]
 
