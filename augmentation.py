@@ -5,7 +5,8 @@ import torch
 import torch.nn as nn
 from icecream import ic
 import faiss
-import spacy
+# import spacy
+import pandas as pd
 import itertools
 from vncorenlp import VnCoreNLP
 from tqdm import tqdm
@@ -13,7 +14,7 @@ import re
 
 MODEL_NAME = "./bert-base-multilingual-cased"
 OUTPUT_FILE = "augmentation"
-NLP = spacy.load("en_core_web_sm")
+# NLP = spacy.load("en_core_web_sm")
 mapping_keywords = {
     'bn': 'bệnh nhân',
     'th': 'trường hợp'
@@ -184,12 +185,17 @@ class Dictionary_base_Augmentation(nn.Module):
 
 
 if __name__ == '__main__':
-    ind_dic_json = json.load(open("./Final/Medical_Dictionary.json", 'r', encoding='utf-8'))
+    ind_dic_json = json.load(open("./data/Final/Medical_Dictionary.json", 'r', encoding='utf-8'))
     ind_dic = [(en_term, vi_term) for en_term, vi_terms in ind_dic_json.items() for vi_term in vi_terms]
-    en_ood = open("./Final/train.en.txt", 'r', encoding='utf-8')
-    vi_ood = open("./Final/train.vi.txt", 'r', encoding='utf-8')
-    ood_parallel_corpus = []
-    for en_sen, vi_sen in zip(en_ood, vi_ood):
-        ood_parallel_corpus.append((en_sen, vi_sen))
-    augmentation_model = Dictionary_base_Augmentation(OUTPUT_FILE, MODEL_NAME, batch_size=256, threshold=1e-3, align_layer=8, topN=10)
-    augmentation_model(ood_parallel_corpus[:10], ind_dic[:100])
+    df = pd.DataFrame({
+        "en_text": [en for en, _ in ind_dic],
+        "vi_text": [vi for _, vi in ind_dic]
+    })
+    ic(df.shape)
+    # en_ood = open("./Final/train.en.txt", 'r', encoding='utf-8')
+    # vi_ood = open("./Final/train.vi.txt", 'r', encoding='utf-8')
+    # ood_parallel_corpus = []
+    # for en_sen, vi_sen in zip(en_ood, vi_ood):
+    #     ood_parallel_corpus.append((en_sen, vi_sen))
+    # augmentation_model = Dictionary_base_Augmentation(OUTPUT_FILE, MODEL_NAME, batch_size=256, threshold=1e-3, align_layer=8, topN=10)
+    # augmentation_model(ood_parallel_corpus[:10], ind_dic[:100])

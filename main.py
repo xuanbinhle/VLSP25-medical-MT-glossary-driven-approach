@@ -71,17 +71,15 @@ if __name__ == '__main__':
     model_name = "./Qwen3-0.6B"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype='auto', device_map='auto')
-    dataset = create_dataset(en_file="./Final/train.en.txt", vi_file="./Final/train.vi.txt")
+    dataset = create_dataset(en_file="./data/Final/train.en.txt", vi_file="./data/Final/train.vi.txt")
     conversations = [convert_to_conversation(sample) for sample in dataset]
     
     input_text = tokenizer.apply_chat_template(
-        conversations[0],
+        conversations[0]['messages'],
         tokenize=False,
         add_generation_prompt=True,
         enable_thinking=True # Switches between thinking and non-thinking modes. Default is True.
     )
-    print("\nBefore Training:\n")
-    ic(input_text)
     
     model_inputs = tokenizer([input_text], return_tensors="pt").to(model.device)
     # conduct text completion
