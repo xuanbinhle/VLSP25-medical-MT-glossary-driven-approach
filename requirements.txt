@@ -1,5 +1,5 @@
 spacy
-faiss-cpu-cu12
+faiss-cpu
 vncorenlp
 transformers
 icecream
