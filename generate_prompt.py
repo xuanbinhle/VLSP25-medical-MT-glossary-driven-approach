@@ -86,6 +86,46 @@ def build_prompt(src_text, lang, similar_terms):
 {ref_block}Sentence: "{highlighted_sentence}"
 """.strip()
 
+def build_chat_messages(src_text, tgt_text, lang, similar_terms):
+    has_terms = bool(similar_terms)
+
+    if has_terms:
+        # De-duplicate by target
+        if lang == "en":
+            seen_vi = set()
+            dedup_terms = [(en, vi) for en, vi in similar_terms if not (vi in seen_vi or seen_vi.add(vi))]
+            ref_block = "Refer to these medical terms for accuracy:\n" + \
+                        "\n".join([f'- "{en}" → <target>"{vi}"</target>' for en, vi in dedup_terms]) + "\n"
+        else:
+            seen_en = set()
+            dedup_terms = [(en, vi) for en, vi in similar_terms if not (en in seen_en or seen_en.add(en))]
+            ref_block = "Refer to these medical terms for accuracy:\n" + \
+                        "\n".join([f'- "{vi}" → <target>"{en}"</target>' for en, vi in dedup_terms]) + "\n"
+    else:
+        dedup_terms = []
+        ref_block = ""
+
+    # Highlight terms in sentence
+    if lang == "en":
+        highlighted_sentence = highlight_terms_in_sentence(src_text, dedup_terms)
+        header = "Translate the following English sentence into Vietnamese."
+    else:
+        highlighted_sentence = highlight_terms_in_sentence(src_text, [(vi, en) for en, vi in dedup_terms])
+        header = "Translate the following Vietnamese sentence into English."
+
+    # Add flag only if there are medical terms
+    flag_line = "has_medical_terms: true\n" if has_terms else ""
+
+    user_msg = f"""{flag_line}You are a professional translator.
+{header}
+{ref_block}Sentence: "{highlighted_sentence}"
+""".strip()
+
+    return [
+        {"role": "user", "content": user_msg},
+        {"role": "assistant", "content": tgt_text.strip()}
+    ]
+
 # --- Process Dataset from TXT ---
 def process_txt_dataset(src_txt_path, tgt_txt_path, output_jsonl_path, lang, df_dict, model_sbert, en_terms, en_embeddings):
     with open(src_txt_path, "r", encoding="utf-8") as f_src, open(tgt_txt_path, "r", encoding="utf-8") as f_tgt:
@@ -102,19 +142,17 @@ def process_txt_dataset(src_txt_path, tgt_txt_path, output_jsonl_path, lang, df_
             continue
 
         similar_terms = get_similar_terms(src, model_sbert, en_terms, en_embeddings, df_dict, TOP_K, SIM_THRESHOLD)
-        prompt = build_prompt(src, lang, similar_terms)
+        chat_messages = build_chat_messages(src, tgt, lang, similar_terms)
 
         results.append({
-            "prompt": prompt,
-            "response": tgt,
-            "has_medical_terms": bool(similar_terms)
+            "messages": chat_messages
         })
 
     with open(output_jsonl_path, "w", encoding="utf-8") as fout:
         for r in results:
             json.dump(r, fout, ensure_ascii=False)
             fout.write("\n")
-    print(f"Saved {len(results)} prompt-response pairs to: {output_jsonl_path}")
+    print(f"Saved {len(results)} chat-format examples to: {output_jsonl_path}")
 
 def load_sbert_model(lang):
     if lang == "vi":
