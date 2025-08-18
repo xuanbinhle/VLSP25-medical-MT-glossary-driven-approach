@@ -5,16 +5,15 @@ import torch
 import torch.nn as nn
 from icecream import ic
 import faiss
-# import spacy
+from collections import defaultdict
+import spacy
 import pandas as pd
 import itertools
 from vncorenlp import VnCoreNLP
 from tqdm import tqdm
 import re
 
-MODEL_NAME = "./bert-base-multilingual-cased"
-OUTPUT_FILE = "augmentation"
-# NLP = spacy.load("en_core_web_sm")
+NLP = spacy.load("en_core_web_sm")
 mapping_keywords = {
     'bn': 'bệnh nhân',
     'th': 'trường hợp'
@@ -28,7 +27,7 @@ def replace_keywords(text, mapping):
     return re.sub(pattern, repl, text)
 
 class Dictionary_base_Augmentation(nn.Module):
-    def __init__(self, file_out: str, model_name: str, batch_size: int, threshold: float, align_layer: int, topN: int):
+    def __init__(self, model_name: str, batch_size: int, threshold: float, align_layer: int, topN: int):
         super().__init__()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -38,18 +37,13 @@ class Dictionary_base_Augmentation(nn.Module):
         self.threshold = threshold
         self.align_layer = align_layer
         self.topN = topN
-        self.file_out = file_out
 
-    def get_batch_embeddings(self, sentences: list[str]) -> torch.Tensor:
-        embeddings = []
-        for i in range(0, len(sentences), self.batch_size):
-            batch = sentences[i:i+self.batch_size]
-            inputs = self.tokenizer(batch, max_length=512, padding=True, truncation=True,return_tensors='pt').to(self.device)
-            with torch.no_grad():
-                outputs = self.model(**inputs)
-            batch_embeddings = outputs.pooler_output.cpu().numpy() # Access pooled output (from [CLS])
-            embeddings.append(batch_embeddings)
-        return np.concatenate(embeddings, axis=0).astype('float32')
+    def get_batch_embeddings(self, batch: list[str]) -> torch.Tensor:
+        inputs = self.tokenizer(batch, max_length=512, padding=True, truncation=True,return_tensors='pt').to(self.device)
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        batch_embeddings = outputs.pooler_output.cpu().numpy() # Access pooled output (from [CLS])
+        return batch_embeddings
 
     def get_topN_src_sentences(self, src_ood_parallel_corpus_embeddings, src_ind_dic_embeddings) -> list[list[int]]:
         index = faiss.IndexFlatIP(src_ood_parallel_corpus_embeddings.shape[-1])
@@ -126,76 +120,82 @@ class Dictionary_base_Augmentation(nn.Module):
             softmax_inter = (softmax_srctgt > self.threshold) * (softmax_tgtsrc > self.threshold)
 
         align_subwords = torch.nonzero(softmax_inter, as_tuple=False)
-        mapping_align_words = {}
+        mapping_align_words = defaultdict(list)
         for i, j in align_subwords:
-            if src_phrases[sub2word_map_src[i]] not in mapping_align_words:
-                mapping_align_words[src_phrases[sub2word_map_src[i]]] = tgt_phrases[sub2word_map_tgt[j]].strip()
-            elif tgt_phrases[sub2word_map_tgt[j]].strip() != mapping_align_words[src_phrases[sub2word_map_src[i]]]:
-                mapping_align_words[src_phrases[sub2word_map_src[i]]] += " " + tgt_phrases[sub2word_map_tgt[j]].strip()
+            src_phrase = src_phrases[sub2word_map_src[i]]
+            tgt_phrase = tgt_phrases[sub2word_map_tgt[j]].strip()
+            if tgt_phrase not in mapping_align_words[src_phrase]:
+                mapping_align_words[src_phrase].append(tgt_phrase)
         return mapping_align_words
 
     def substitute(self, ood_sentence: str, phrase_max_ood: str, phrase_ind: str) -> str:
         return ood_sentence.replace(phrase_max_ood, phrase_ind).strip()
 
-    def forward(self, ood_parallel_corpus, ind_dic):
-        src_odd_parallel_corpus, tgt_odd_parallel_corpus = [], []
-        for S, T in ood_parallel_corpus:
-            src_odd_parallel_corpus.append(S)
-            tgt_odd_parallel_corpus.append(T)
+    def forward(self, en_ind_corpus: list, vi_ind_corpus: list, ind_dic=None) -> dict:
+        # src_ind_parallel_corpus, tgt_ind_parallel_corpus = [], []
+        # for S, T in ind_parallel_corpus:
+        #     src_ind_parallel_corpus.append(S)
+        #     tgt_ind_parallel_corpus.append(T)
 
-        src_ind_dic, tgt_ind_dic = [], []
-        for src, tgt in ind_dic:
-            src_ind_dic.append(src)
-            tgt_ind_dic.append(tgt)
+        # src_ind_dic, tgt_ind_dic = [], []
+        # for src, tgt in ind_dic:
+        #     src_ind_dic.append(src)
+        #     tgt_ind_dic.append(tgt)
 
-        src_ood_parallel_corpus_embeddings = self.get_batch_embeddings(src_odd_parallel_corpus)
-        src_ind_dic_embeddings = self.get_batch_embeddings(src_ind_dic)
-        src_ood_topN_sen_corpus_indices = self.get_topN_src_sentences(src_ood_parallel_corpus_embeddings, src_ind_dic_embeddings)
-        assert len(src_ood_topN_sen_corpus_indices) == src_ind_dic_embeddings.shape[0], "Not Suitable Size"
-        self.f_en_out = open(f"{self.file_out}.en.txt", 'w', encoding='utf-8')
-        self.f_vi_out = open(f"{self.file_out}.vi.txt", 'w', encoding='utf-8')
-        for i in tqdm(range(src_ind_dic_embeddings.shape[0]), desc='Similarity to src_dic'):
-            src_embedding = src_ind_dic_embeddings[i].reshape(1, -1)
-            faiss.normalize_L2(src_embedding)
-            for id_sen in src_ood_topN_sen_corpus_indices[i]:
-                phrases_Sk = self.extract_en_noun_phrases(src_odd_parallel_corpus[id_sen])
-                phrases_Tk = self.extract_vi_noun_phrases(tgt_odd_parallel_corpus[id_sen])
-                mapping_align_words = self.align(phrases_Sk, phrases_Tk)
+        # src_ood_parallel_corpus_embeddings = self.get_batch_embeddings(src_ind_parallel_corpus)
+        # src_ind_dic_embeddings = self.get_batch_embeddings(src_ind_dic)
+        # src_ood_topN_sen_corpus_indices = self.get_topN_src_sentences(src_ood_parallel_corpus_embeddings, src_ind_dic_embeddings)
+        # assert len(src_ood_topN_sen_corpus_indices) == src_ind_dic_embeddings.shape[0], "Not Suitable Size"
+        
+        # self.f_en_out = open(f"{self.file_out}.en.txt", 'w', encoding='utf-8')
+        # self.f_vi_out = open(f"{self.file_out}.vi.txt", 'w', encoding='utf-8')
+        # for i in tqdm(range(0, len(src_ind_parallel_corpus), self.batch_size), desc='Calculating Similarity'):
+        #     src_batch = src_ind_parallel_corpus[i:i+self.batch_size]
+        #     tgt_batch = tgt_ind_parallel_corpus[i:i+self.batch_size]
+            
+        #     src_embedding = self.get_batch_embeddings(src_batch)
+        #     tgt_embedding = self.get_batch_embeddings(tgt_batch)
+        #     faiss.normalize_L2(src_embedding)
+        #     faiss.normalize_L2(tgt_embedding)
+        #     for id_sen in src_ood_topN_sen_corpus_indices[i]:
+        #         phrases_Sk = self.extract_en_noun_phrases(src_odd_parallel_corpus[id_sen])
+        #         phrases_Tk = self.extract_vi_noun_phrases(tgt_odd_parallel_corpus[id_sen])
+        #         mapping_align_words = self.align(phrases_Sk, phrases_Tk)
 
-                phrases_embeddings = self.get_batch_embeddings(phrases_Sk)
-                index_phrase = faiss.IndexFlatIP(phrases_embeddings.shape[-1])
-                faiss.normalize_L2(phrases_embeddings)
-                index_phrase.add(phrases_embeddings)
-                _, max_sim_index = index_phrase.search(src_embedding, k=1)
-                phrase_max_Sk = phrases_Sk[max_sim_index[0].item()]
-                if phrase_max_Sk not in mapping_align_words:
-                    continue
-                phrase_max_Tk = mapping_align_words[phrase_max_Sk]
-                if phrase_max_Tk not in mapping_align_words:
-                    continue
+        #         phrases_embeddings = self.get_batch_embeddings(phrases_Sk)
+        #         index_phrase = faiss.IndexFlatIP(phrases_embeddings.shape[-1])
+        #         faiss.normalize_L2(phrases_embeddings)
+        #         index_phrase.add(phrases_embeddings)
+        #         _, max_sim_index = index_phrase.search(src_embedding, k=1)
+        #         phrase_max_Sk = phrases_Sk[max_sim_index[0].item()]
+        #         if phrase_max_Sk not in mapping_align_words:
+        #             continue
+        #         phrase_max_Tk = mapping_align_words[phrase_max_Sk]
+        #         if phrase_max_Tk not in mapping_align_words:
+        #             continue
 
-                aug_src_sen = self.substitute(src_odd_parallel_corpus[id_sen], phrase_max_Sk, src_ind_dic[i])
-                aug_tgt_sen = self.substitute(tgt_odd_parallel_corpus[id_sen], phrase_max_Tk, tgt_ind_dic[i])
-                ic(aug_src_sen, aug_tgt_sen)
-                raise
-                self.f_en_out.write(f"{aug_src_sen}\n")
-                self.f_vi_out.write(f"{aug_tgt_sen}\n")
-                self.f_en_out.flush()
-                self.f_vi_out.flush()
-
+        #         aug_src_sen = self.substitute(src_odd_parallel_corpus[id_sen], phrase_max_Sk, src_ind_dic[i])
+        #         aug_tgt_sen = self.substitute(tgt_odd_parallel_corpus[id_sen], phrase_max_Tk, tgt_ind_dic[i])
+        #         ic(aug_src_sen, aug_tgt_sen)
+        #         raise
+        #         self.f_en_out.write(f"{aug_src_sen}\n")
+        #         self.f_vi_out.write(f"{aug_tgt_sen}\n")
+        #         self.f_en_out.flush()
+        #         self.f_vi_out.flush()
+        
+        final_mapping = {}
+        for S, T in tqdm(zip(en_ind_corpus, vi_ind_corpus), desc='Mapping Align Words'):
+            phrases_Sk = self.extract_en_noun_phrases(S)
+            phrases_Tk = self.extract_vi_noun_phrases(T)
+            mapping_align_words = self.align(phrases_Sk, phrases_Tk)
+            ic(mapping_align_words)
+            # for en, vi in mapping_align_words.items():
+            #     final_mapping[en] 
 
 if __name__ == '__main__':
-    ind_dic_json = json.load(open("./data/Final/Medical_Dictionary.json", 'r', encoding='utf-8'))
-    ind_dic = [(en_term, vi_term) for en_term, vi_terms in ind_dic_json.items() for vi_term in vi_terms]
-    df = pd.DataFrame({
-        "en_text": [en for en, _ in ind_dic],
-        "vi_text": [vi for _, vi in ind_dic]
-    })
-    ic(df.shape)
-    # en_ood = open("./Final/train.en.txt", 'r', encoding='utf-8')
-    # vi_ood = open("./Final/train.vi.txt", 'r', encoding='utf-8')
-    # ood_parallel_corpus = []
-    # for en_sen, vi_sen in zip(en_ood, vi_ood):
-    #     ood_parallel_corpus.append((en_sen, vi_sen))
-    # augmentation_model = Dictionary_base_Augmentation(OUTPUT_FILE, MODEL_NAME, batch_size=256, threshold=1e-3, align_layer=8, topN=10)
-    # augmentation_model(ood_parallel_corpus[:10], ind_dic[:100])
+    en_ind_corpus = open("./data/Final/train.en.txt", 'r', encoding='utf-8')
+    vi_ind_corpus = open("./data/Final/train.vi.txt", 'r', encoding='utf-8')
+    aug_dic_method = Dictionary_base_Augmentation("./bert-base-multilingual-cased", batch_size=256, threshold=1e-3, align_layer=8, topN=10)
+    final_mapping = aug_dic_method(en_ind_corpus, vi_ind_corpus)
+    with open("appendix_dic.json", 'w', encoding='utf-8') as f:
+        json.dump(final_mapping, f, ensure_ascii=False, indent=4)
