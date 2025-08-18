@@ -49,35 +49,39 @@ def highlight_terms_in_sentence(sentence, terms):
     return sentence
 
 def build_prompt(src_text, lang, similar_terms):
-    has_terms = bool(similar_terms)
+    if not similar_terms:
+        ref_block = ""
+        dedup_terms = []
+    else:
+        # De-duplicate by target to avoid repeated mappings
+        if lang == "en":  # EN→VI
+            seen_vi = set()
+            dedup_terms = [(en, vi) for en, vi in similar_terms if not (vi in seen_vi or seen_vi.add(vi))]
+        else:  # VI→EN
+            seen_en = set()
+            dedup_terms = [(en, vi) for en, vi in similar_terms if not (en in seen_en or seen_en.add(en))]
+
+        # Create dictionary hint block
+        if lang == "en":
+            ref_block = "Refer to these medical terms for accuracy:\n" + \
+                        "\n".join([f'- "{en}" → <target>"{vi}"</target>' for en, vi in dedup_terms]) + "\n"
+        else:
+            ref_block = "Refer to these medical terms for accuracy:\n" + \
+                        "\n".join([f'- "{vi}" → <target>"{en}"</target>' for en, vi in dedup_terms]) + "\n"
+
+    # Highlight terms in the sentence
     if lang == "en":
+        # Highlight English terms in English sentence
+        highlighted_sentence = highlight_terms_in_sentence(src_text, dedup_terms)
         role = "You are a professional translator."
         header = "Translate the following English sentence into Vietnamese."
-        meta = f"has_medical_terms: {str(has_terms).lower()}"
-        ref_terms = "\n".join([f'- <term>"{en}"</term> → <target>"{vi}"</target>' for en, vi in similar_terms])
-        ref_block = f"Refer to these medical terms for accuracy:\n{ref_terms}\n" if has_terms else ""
-
-        # Highlight the terms in the sentence
-        highlighted_sentence = highlight_terms_in_sentence(src_text, similar_terms)
-
-        return f"""{meta}
-{role}
-{header}
-{ref_block}Sentence: "{highlighted_sentence}"
-""".strip()
-
-    elif lang == "vi":
+    else:  # lang == "vi"
+        # Highlight Vietnamese terms in Vietnamese sentence
+        highlighted_sentence = highlight_terms_in_sentence(src_text, [(vi, en) for en, vi in dedup_terms])
         role = "You are a professional translator."
         header = "Translate the following Vietnamese sentence into English."
-        meta = f"has_medical_terms: {str(has_terms).lower()}"
-        ref_terms = "\n".join([f'- <term>"{vi}"</term> → <target>"{en}"</target>' for en, vi in similar_terms])
-        ref_block = f"Refer to these medical terms for accuracy:\n{ref_terms}\n" if has_terms else ""
 
-        # Highlight the terms in the sentence
-        highlighted_sentence = highlight_terms_in_sentence(src_text, [(vi, en) for en, vi in similar_terms])
-
-        return f"""{meta}
-{role}
+    return f"""{role}
 {header}
 {ref_block}Sentence: "{highlighted_sentence}"
 """.strip()
