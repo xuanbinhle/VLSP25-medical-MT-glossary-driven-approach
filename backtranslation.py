@@ -1,3 +1,8 @@
+"""
+Augmentation Dataset = Back-Translation
+Notes: NOT USE
+"""
+
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import torch
 import torch.nn as nn

@@ -1,4 +1,8 @@
-# Open file & Process
+"""
+Xây dựng Dictionary của File .txt bị lỗi format + Medical VinUni Dictionary -> Final_Medical_Dictionary
+Notes: USE - Được bổ sung nếu keyword tồn tại trong tập Dictionary of Corpus
+"""
+
 import re
 import json
 

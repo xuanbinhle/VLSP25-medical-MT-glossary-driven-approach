@@ -1,3 +1,7 @@
+"""
+Thống kê số lượng records
+"""
+
 import json
 import re
 
