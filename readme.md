@@ -6,8 +6,6 @@ We leverage terminology reference in the finetuning process using QLoRa techniqu
 [![Workflow](image.jpg)](image.jpg)
 
 # Code 
-- augmentation.py: This code implements the method 'Dictionary-based Data Augmentation' to enhance in-domain data using an out-of-domain dataset and an in-domain dictionary.
-- construct_dictionary.py: Construct an in-domain dictionary based on VinUni and EN-VI Medical Terms data in a structured format
 - create_dic_corpus.py: Building in-domain dictionary based on corpus by extracting noun-phrase English and translating them by EnViT5 Model
 - create_prompt.py: Construct Prompt for fine-tuning model
 - create_test_prompt.py: Construct Prompt for inference model
@@ -15,9 +13,27 @@ We leverage terminology reference in the finetuning process using QLoRa techniqu
 - finetuning_new.py: Fine-tuning model on in-domain dataset
 - statistic.py: Cleaning Corpus and Statistic
 ## Create glossary from corpus
+```bash
+python create_dic_corpus.py
+```
 
 ## Make prompt for supervised fine-tuning (SFT)
+```bash
+python create_prompt.py
+```
 
-## Fine tune model
+## Fine-tune model
+```bash
+python finetuning_new.py
+```
 
 ## Inference
+Create prompt for inference model
+```bash
+python create_test_prompt.py
+```
+
+Evaluate test set and perform statistics
+```bash
+python inference.py
+```
