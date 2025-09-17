@@ -48,25 +48,10 @@ def get_similar_terms(sentence: str, model: SentenceTransformer, terms: List[str
     top_results = torch.topk(cos_scores, k=top_k)
     return [(terms[i], float(s)) for i, s in zip(top_results.indices, top_results.values) if s >= SIM_THRESHOLD]
 
-# ========== Highlighting ==========
-_WORD_BOUNDARY = r"(?<![A-Za-zÀ-ỹ0-9]){term}(?![A-Za-zÀ-ỹ0-9])"
-
-def highlight_terms(sentence: str, terms: List[str]) -> str:
-    for term in sorted(set(terms), key=len, reverse=True):
-        if not term: continue
-        pattern = re.compile(_WORD_BOUNDARY.format(term=re.escape(term)), flags=re.IGNORECASE)
-        sentence = pattern.sub(lambda m: f"<term>{m.group(0)}</term>", sentence)
-    return sentence
-
 # ========== Reference Block ==========
 def format_ref_block(pairs: List[Tuple[str, List[str]]], src_label: str) -> str:
     if not pairs:
         return ""
-#     notes = """
-# - Do not change or approximate any numbers, dates, laboratory values, or medication dosages.
-# - Keep measurement units (mg, ml, Hz, bpm, %, etc.) unchanged.
-# - If a number is followed by a unit, copy the number and unit exactly.
-# - Preserve all formatting of numbers, including decimals, commas, and percentage signs."""
     lines = []
     for src_term, tgt_terms in pairs:
         quoted_tgts = '; '.join([f'"{t}"' for t in tgt_terms])
@@ -81,12 +66,10 @@ def build_chat_messages(src: str, tgt: str, lang: str, matched: List[Tuple[str, 
     if lang == "en":
         dedup = [(en, en2vi.get(en, [])) for en, _ in matched]
         ref_block = format_ref_block(dedup, "en")
-        # highlight = highlight_terms(src, [en for en, _ in matched])
         header = "Translate the following English text into natural and accurate Vietnamese."
     else:
         dedup = [(vi, vi2en.get(vi, [])) for vi, _ in matched]
         ref_block = format_ref_block(dedup, "vi")
-        # highlight = highlight_terms(src, [vi for vi, _ in matched])
         header = "Translate the following Vietnamese text into natural and accurate English."
 
     user_msg = f"""{header}: {src.strip()}
@@ -126,18 +109,18 @@ def main(en_ind_traindata, vi_ind_traindata, en_ind_testdata, vi_ind_testdata, e
     vi2en = load_dict("./Final/final_dic_vien.json")
 
     # --- EN → VI ---
-    # model_en = load_sbert_model("en")
-    # en_terms, en_emb = build_embeddings(sorted(en2vi.keys()), model_en)
-    # process_dataset(en_ind_traindata, vi_ind_traindata, f"improved_prompts_ind_train_en2vi.jsonl", "en", model_en, en_terms, en_emb, en2vi, vi2en)
-    # process_dataset(en_ind_testdata, vi_ind_testdata, f"improved_prompts_ind_test_en2vi.jsonl", "en", model_en, en_terms, en_emb, en2vi, vi2en)
-    # process_dataset(en_ood_data, vi_ood_data, f"improved_prompts_ood_en2vi.jsonl", "en", model_en, en_terms, en_emb, en2vi, vi2en)
+    model_en = load_sbert_model("en")
+    en_terms, en_emb = build_embeddings(sorted(en2vi.keys()), model_en)
+    process_dataset(en_ind_traindata, vi_ind_traindata, f"./Final/improved_prompts_ind_train_en2vi.jsonl", "en", model_en, en_terms, en_emb, en2vi, vi2en)
+    process_dataset(en_ind_testdata, vi_ind_testdata, f"./Final/improved_prompts_ind_test_en2vi.jsonl", "en", model_en, en_terms, en_emb, en2vi, vi2en)
+    process_dataset(en_ood_data, vi_ood_data, f"./Final/improved_prompts_ood_en2vi.jsonl", "en", model_en, en_terms, en_emb, en2vi, vi2en)
 
     # --- VI → EN ---
     model_vi = load_sbert_model("vi")
     vi_terms, vi_emb = build_embeddings(sorted(vi2en.keys()), model_vi)
-    process_dataset(vi_ind_traindata, en_ind_traindata, f"improved_prompts_ind_train_vi2en.jsonl", "vi", model_vi, vi_terms, vi_emb, en2vi, vi2en)
-    # process_dataset(vi_ind_testdata, en_ind_testdata, f"improved_prompts_ind_test_vi2en.jsonl", "vi", model_vi, vi_terms, vi_emb, en2vi, vi2en)
-    # process_dataset(vi_ood_data, en_ood_data, f"improved_prompts_ood_vi2en.jsonl", "vi", model_vi, vi_terms, vi_emb, en2vi, vi2en)
+    process_dataset(vi_ind_traindata, en_ind_traindata, f"./Final/improved_prompts_ind_train_vi2en.jsonl", "vi", model_vi, vi_terms, vi_emb, en2vi, vi2en)
+    process_dataset(vi_ind_testdata, en_ind_testdata, f"./Final/improved_prompts_ind_test_vi2en.jsonl", "vi", model_vi, vi_terms, vi_emb, en2vi, vi2en)
+    process_dataset(vi_ood_data, en_ood_data, f"./Final/improved_prompts_ood_vi2en.jsonl", "vi", model_vi, vi_terms, vi_emb, en2vi, vi2en)
 
 if __name__ == "__main__":
     main("./Final/train.en.txt", "./Final/train.vi.txt", "./Final/test.en.txt", "./Final/test.vi.txt", "./Final/ood_corpus1.1.en.txt", "./Final/ood_corpus1.1.vi.txt")

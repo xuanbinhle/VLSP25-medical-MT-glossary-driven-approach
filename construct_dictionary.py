@@ -44,6 +44,7 @@ def is_valid_term_pair(en_term, vi_term):
            re.fullmatch(VI_PATTERN, vi_term, re.VERBOSE)
 
 if __name__ == '__main__':
+    # ================================ Construct Dictionary from Medical .txt =====================================================
     # with open("/content/drive/MyDrive/[VLSP] MT in Medical Domain/Other Dataset/EN-VI Medical Dictionary.txt", encoding='utf-8') as dic_vi_en:
     #     en_temp, vi_temp = "", ""
     #     prev_key, prev_value = "", ""
